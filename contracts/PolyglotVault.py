@@ -1,8 +1,11 @@
-# v0.2.18
+# v0.2.16
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
 from dataclasses import dataclass
 import json
+
+class UserError(Exception):
+    pass
 
 @allow_storage
 @dataclass
@@ -11,156 +14,124 @@ class Task:
     translator: str
     escrow_amount: bigint
     translator_stake: bigint
-    status: str            # OPEN, IN_PROGRESS, AWAITING_PAYOUT, NEEDS_REVISION, ESCALATED, DISPUTED, CLOSED
-    media_url: str         # Source video transcript / content URL
-    subtitle_url: str      # Submitted SRT / VTT subtitle file URL
-    target_lang: str       # Target language (e.g. "English to Vietnamese")
-    guidelines: str        # Style guidelines and tone constraints
-    blacklist_words: str   # Forbidden terms or machine-translation artifacts
-    verdict: str           # APPROVED, PARTIAL, REFUND, ESCALATE
+    status: str
+    media_url: str
+    subtitle_url: str
+    target_lang: str
+    guidelines: str
+    blacklist_words: str
+    verdict: str
     reason: str
     confidence: bigint
     attempts: bigint
     payout_ready_at: bigint
     disputed_at: bigint
 
-class Contract(gl.Contract):
+class PolyglotVault(gl.Contract):
+    platform_admin: str
     tasks: TreeMap[str, Task]
     task_ids: DynArray[str]
-    platform_admin: str
 
     def __init__(self):
-        # GenVM automatically allocates TreeMap & DynArray
         self.platform_admin = str(gl.message.sender_address).lower()
 
     def _get_current_timestamp(self) -> bigint:
-        """Derive trusted timestamp strictly from execution context (gl.message_raw)."""
-        dt_raw = gl.message_raw.get("datetime", None) if isinstance(gl.message_raw, dict) else None
-        if not dt_raw:
-            raise UserError("Trusted execution timestamp missing from transaction context")
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(str(dt_raw).replace("Z", "+00:00"))
-            ts = int(dt.timestamp())
-            if ts > 0:
-                return bigint(ts)
-        except Exception as e:
-            raise UserError(f"Failed to parse trusted execution timestamp: {str(e)}")
-        raise UserError("Invalid execution timestamp in transaction context")
+        return gl.vm.get_timestamp()
 
-    def _parse_llm_json(self, text) -> dict:
-        """Robust parser handling raw JSON or markdown code fences."""
-        if isinstance(text, dict):
-            return text
-        if hasattr(text, "__dict__"):
-            return text.__dict__
-        t = str(text).strip()
-        if t.startswith("```json"):
-            t = t[7:]
-        elif t.startswith("```"):
-            t = t[3:]
-        if t.endswith("```"):
-            t = t[:-3]
+    def _parse_llm_json(self, response_str: str) -> dict:
         try:
-            return json.loads(t.strip())
-        except Exception as e:
-            return {"verdict": "ESCALATE", "confidence": 0, "reason": f"JSON parse failure: {str(e)}"}
+            return json.loads(response_str)
+        except Exception:
+            clean_str = response_str.replace("```json", "").replace("```", "").strip()
+            try:
+                return json.loads(clean_str)
+            except Exception:
+                return {"verdict": "ESCALATE", "confidence": 0, "reason": "Failed to parse AI output."}
 
     @gl.public.write.payable
-    def create_task(
-        self,
-        task_id: str,
-        media_url: str,
-        target_lang: str,
-        guidelines: str,
-        blacklist_words: str
-    ) -> None:
-        amount = gl.message.value
-        if amount <= bigint(0):
-            raise UserError("Escrow reward must be greater than 0")
+    def create_task(self, task_id: str, media_url: str, target_lang: str, guidelines: str, blacklist_words: str) -> None:
         if task_id in self.tasks:
-            raise UserError("Task ID already exists")
-        if not media_url.startswith("http"):
-            raise UserError("Valid HTTP/HTTPS media URL required")
+            raise UserError(f"Task ID {task_id} already exists")
+        
+        escrow_amt = gl.message.value
+        if escrow_amt <= bigint(0):
+            raise UserError("Escrow bounty must be strictly positive")
 
-        self.task_ids.append(task_id)
-        self.tasks[task_id] = Task(
-            publisher=str(gl.message.sender_address).lower(),
+        caller = str(gl.message.sender_address).lower()
+        
+        task = Task(
+            publisher=caller,
             translator="0x0000000000000000000000000000000000000000",
-            escrow_amount=amount,
+            escrow_amount=escrow_amt,
             translator_stake=bigint(0),
             status="OPEN",
-            media_url=media_url.strip(),
+            media_url=media_url,
             subtitle_url="",
-            target_lang=target_lang.strip(),
-            guidelines=guidelines.strip(),
-            blacklist_words=blacklist_words.strip(),
+            target_lang=target_lang,
+            guidelines=guidelines,
+            blacklist_words=blacklist_words,
             verdict="NONE",
-            reason="Awaiting translator acceptance",
+            reason="",
             confidence=bigint(0),
             attempts=bigint(0),
             payout_ready_at=bigint(0),
             disputed_at=bigint(0)
         )
+        self.tasks[task_id] = task
+        self.task_ids.append(task_id)
 
     @gl.public.write.payable
     def accept_task(self, task_id: str) -> None:
-        """Translator accepts task by depositing mandatory 20% stake."""
         if task_id not in self.tasks:
             raise UserError("Task not found")
         task = self.tasks[task_id]
         if task.status != "OPEN":
-            raise UserError("Task is not in OPEN status")
-        if str(gl.message.sender_address).lower() == task.publisher:
-            raise UserError("Publisher cannot translate their own task")
+            raise UserError("Task is not OPEN")
 
-        stake = gl.message.value
-        min_stake = task.escrow_amount // bigint(5)  # 20% minimum stake
-        if stake < min_stake or stake <= bigint(0):
-            raise UserError(f"Insufficient stake: Minimum 20% required ({min_stake})")
+        caller = str(gl.message.sender_address).lower()
+        if caller == task.publisher:
+            raise UserError("Publisher cannot accept their own task")
 
-        task.translator = str(gl.message.sender_address).lower()
-        task.translator_stake = stake
+        min_stake = task.escrow_amount // bigint(5)
+        if gl.message.value < min_stake:
+            raise UserError(f"Insufficient stake. Required: 20% of escrow ({min_stake})")
+
+        task.translator = caller
+        task.translator_stake = gl.message.value
         task.status = "IN_PROGRESS"
         self.tasks[task_id] = task
 
     @gl.public.write
-    def submit_subtitles(self, task_id: str, subtitle_url: str) -> None:
-        """Translator submits localized subtitle file URL."""
+    def submit_deliverable(self, task_id: str, subtitle_url: str) -> None:
         if task_id not in self.tasks:
             raise UserError("Task not found")
         task = self.tasks[task_id]
-        if str(gl.message.sender_address).lower() != task.translator:
-            raise UserError("Only the assigned translator can submit deliverables")
+        caller = str(gl.message.sender_address).lower()
+        
+        if caller != task.translator:
+            raise UserError("Only the assigned translator can submit")
         if task.status not in ["IN_PROGRESS", "NEEDS_REVISION"]:
-            raise UserError("Task is not in a submittable state")
-        if not subtitle_url.startswith("http"):
-            raise UserError("Valid HTTP/HTTPS subtitle URL required")
+            raise UserError("Task is not ready for submission")
 
-        task.subtitle_url = subtitle_url.strip()
+        task.subtitle_url = subtitle_url
         task.attempts += bigint(1)
-        self.tasks[task_id] = task
-
-        media_str = task.media_url
-        sub_str = task.subtitle_url
+        
+        m_url = task.media_url
+        s_url = task.subtitle_url
         lang_str = task.target_lang
         guide_str = task.guidelines
         black_str = task.blacklist_words
 
-        def leader_fn():
-            # 1. Anti-Rugpull Check: Source video / transcript URL
+        def leader_fn() -> dict:
             try:
-                m_res = gl.nondet.web.render(media_str, mode="text")
-                m_text = str(m_res)
+                m_text = gl.nondet.web_render(m_url)
                 if any(err in m_text[:400].lower() for err in ["404 not found", "error 404", "not found"]):
-                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Original media URL is dead/404; escrow preserved to protect translator."}
+                    return {"verdict": "ESCALATE", "confidence": 100, "reason": "Source media URL is dead/404. Manual arbitration required."}
             except Exception as e:
                 return {"verdict": "ESCALATE", "confidence": 100, "reason": f"Media fetch failed: {str(e)}"}
 
-            # 2. Anti-Spam Check: Subtitle file deliverable
             try:
-                s_res = gl.nondet.web.render(sub_str, mode="text")
-                s_text = str(s_res)
+                s_text = gl.nondet.web_render(s_url)
                 if any(err in s_text[:400].lower() for err in ["404 not found", "error 404", "not found"]):
                     return {"verdict": "REFUND", "confidence": 100, "reason": "Subtitle file URL is dead/404 or empty."}
             except Exception as e:
@@ -238,12 +209,11 @@ Respond ONLY with valid JSON:
 
         if verdict in ["APPROVED", "PARTIAL"]:
             task.status = "AWAITING_PAYOUT"
-            task.payout_ready_at = self._get_current_timestamp() + bigint(86400)  # 24h cooling-off
+            task.payout_ready_at = self._get_current_timestamp() + bigint(86400)
         elif verdict == "REFUND":
             if task.attempts < bigint(2):
                 task.status = "NEEDS_REVISION"
             else:
-                # Two consecutive failures -> Slash translator stake to publisher
                 task.status = "CLOSED"
                 total_refund = task.escrow_amount + task.translator_stake
                 task.escrow_amount = bigint(0)
@@ -256,7 +226,6 @@ Respond ONLY with valid JSON:
 
     @gl.public.write
     def finalize_payout(self, task_id: str) -> None:
-        """Disburses funds after the 24-hour cooling-off window."""
         if task_id not in self.tasks:
             raise UserError("Task not found")
         task = self.tasks[task_id]
@@ -289,7 +258,6 @@ Respond ONLY with valid JSON:
 
     @gl.public.write
     def resolve_escalation(self, task_id: str, action: str) -> None:
-        """Arbitrates escalated tasks. Publishers may only voluntarily concede (RELEASE)."""
         if task_id not in self.tasks:
             raise UserError("Task not found")
         task = self.tasks[task_id]
