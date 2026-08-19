@@ -3,24 +3,33 @@
 > **"PolyglotVault eliminates centralized localization gatekeepers by running multi-agent linguistic and timing adjudication directly inside GenLayer consensus."**
 
 [![GenLayer](https://img.shields.io/badge/GenLayer-Studionet-6366f1.svg)](https://studio.genlayer.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-GenVM%20v0.2.18-blue.svg)](contracts/PolyglotVault.py)
+[![Live dApp](https://img.shields.io/badge/Live_dApp-Vercel-emerald.svg)](https://frontend-six-olive-69.vercel.app)
+[![GitHub](https://img.shields.io/badge/GitHub-PolyglotVault-100000?logo=github&logoColor=white)](https://github.com/tuannguyenvan95/PolyglotVault)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+---
+
+## 🔗 Live Deployments & Links
+
+- **Live Production dApp**: [https://frontend-six-olive-69.vercel.app](https://frontend-six-olive-69.vercel.app)
+- **GitHub Repository**: [https://github.com/tuannguyenvan95/PolyglotVault](https://github.com/tuannguyenvan95/PolyglotVault)
+- **GenLayer Studio**: [https://studio.genlayer.com](https://studio.genlayer.com)
 
 ---
 
 ## 📌 Project Overview & Key Value Proposition
 
-**PolyglotVault** is a decentralized, AI-adjudicated subtitle and video localization escrow platform built natively on **GenLayer**. It allows content publishers to lock escrow bounties for multi-language video localization, while GenLayer's on-chain AI consensus autonomously evaluates the source media context against submitted `.srt` / `.vtt` subtitle deliverables to settle payouts, enforce tone/style guidelines, or slash malicious spam without human intermediaries.
+**PolyglotVault** is a decentralized, AI-adjudicated subtitle and video localization escrow platform built natively on **GenLayer**. It enables content creators and global publishers to lock escrow bounties for multi-language video localization, while GenLayer's on-chain AI consensus autonomously parses source video transcripts against submitted `.srt` / `.vtt` subtitle files to settle payouts, enforce quality guidelines, or slash malicious spam without human intermediaries.
 
-### 🌟 GenLayer Fit & Score 5 Rubric Alignment
+### 🌟 Key Value Proposition & GenLayer Fit (Score 5 Rubric Alignment)
 
-1. **Subjective Consensus on Complex Media**: Evaluating whether a translated subtitle captures cultural nuance, humor, culinary vocabulary, or timing constraints while avoiding blacklisted terms is inherently non-deterministic—impossible on standard EVM.
-2. **On-Chain Web Rendering (`gl.nondet.web.render`)**: Reads raw media transcripts and subtitle files directly on-chain without centralized oracles or bridges.
+1. **Subjective Consensus on Complex Media**: Evaluating whether a translated subtitle captures cultural nuance, humor, culinary tone, or timing constraints while avoiding blacklisted terms is inherently non-deterministic—impossible on standard EVM.
+2. **On-Chain Web Rendering (`gl.nondet.web.render`)**: Reads raw media transcripts and subtitle files directly on-chain without centralized oracles.
 3. **Two-Way Anti-Tamper & 404 Safeguards**:
-   - If the publisher's media link returns 404 / dead, the escrow automatically transitions to `ESCALATED` to protect the translator's collateral against rug-pulls.
+   - If the publisher's media link dies or returns 404, escrow automatically moves to `ESCALATED` to prevent rug-pulling the translator.
    - If the submitted subtitle link is dead/404, the claim is rejected (`REFUND`) to protect the publisher.
 4. **Game-Theoretic Stake & Slashing (20%)**: Translators must stake at least 20% of the bounty value to accept a task. Two consecutive failed submissions result in full slashing of the stake to the publisher.
-5. **24-Hour Cooling-Off Window**: Payout finalization enforces a mandatory 24-hour dispute delay derived strictly from trusted on-chain execution context (`gl.message_raw`).
+5. **24-Hour Cooling-Off Window**: Payout finalization enforces a mandatory 24-hour dispute delay calculated from trusted on-chain execution context (`gl.message_raw`).
 
 ---
 
@@ -48,7 +57,7 @@
            |  [1/4] gl.nondet.web.render (Fetch Transcript & .SRT)       |
            |  [2/4] gl.nondet.exec_prompt (Evaluate Timing & Nuance)     |
            |  [3/4] gl.vm.run_nondet (Leader-Validator Agreement)       |
-           |  [4/4] State Transition (APPROVED / REFUND / ESCALATED)     |
+           |  [4/4] Settlement (APPROVED / REFUND / ESCALATED)           |
            +-------------------------------------------------------------+
 ```
 
@@ -65,7 +74,7 @@ PolyglotVault/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Navbar.jsx       # Studio navigation & role selector
+│   │   │   ├── Navbar.jsx       # Studio navigation & role switcher
 │   │   │   ├── StatsBar.jsx     # Escrow TVL & game-theoretic metrics
 │   │   │   ├── BountyExplorer.jsx # Filterable task list & cards
 │   │   │   ├── CreateTaskModal.jsx# Publisher bounty creation + presets
@@ -78,7 +87,8 @@ PolyglotVault/
 │   │   ├── App.jsx              # Main application hub
 │   │   └── index.css            # Dark Studio styling (#0f172a theme)
 │   ├── package.json
-│   └── vite.config.js
+│   ├── vite.config.js
+│   └── vercel.json
 └── README.md
 ```
 
@@ -101,36 +111,9 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ---
 
-## 🚀 Deployment to GenLayer Studionet
+## 🚀 Deployment & Portal Submission Checklist
 
-1. **Deploy Contract**:
-   - Open [GenLayer Studio](https://studio.genlayer.com).
-   - Create a new contract file and paste `contracts/PolyglotVault.py`.
-   - Select **studionet** environment.
-   - Click **Deploy** and confirm the transaction receipt is `Result: SUCCESS`.
-   - Copy the deployed contract address.
-
-2. **Configure Frontend**:
-   - Copy `.env.example` to `.env`:
-     ```bash
-     cd frontend
-     cp .env.example .env
-     ```
-   - Update `VITE_CONTRACT_ADDRESS` with your deployed contract address.
-
-3. **Run Frontend Locally**:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
----
-
-## 📝 Submission Checklist
-
-- [x] Intelligent Contract: `contracts/PolyglotVault.py`
-- [x] Adversarial Test Suite: `tests/test_polyglot_vault.py`
-- [x] Modern Dark Studio Frontend: `frontend/`
-- [x] Dual-Pane SRT Live Parser & 4-Step GenVM Consensus Feed
-- [x] Submission track: **GenLayer Portal -> Builders Track** (`portal.genlayer.foundation`)
+1. **Deploy Contract**: Open [GenLayer Studio](https://studio.genlayer.com), paste `contracts/PolyglotVault.py`, deploy on `studionet`, and confirm transaction state is `Result: SUCCESS`.
+2. **Configure Frontend**: Update `VITE_CONTRACT_ADDRESS` on your Vercel deployment with the newly generated contract address.
+3. **Repository Setup**: GitHub repo contains `contracts/PolyglotVault.py`, `tests/test_polyglot_vault.py`, and `frontend/`.
+4. **Portal Submission**: Submit via **Portal -> Builders track** (`portal.genlayer.foundation`).
